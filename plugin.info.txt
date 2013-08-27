@@ -1,0 +1,7 @@
+base   inlinemedia
+author Satoshi Sahara
+email  sahara.satoshi@gmail.com
+date   2013-08-23
+name   Inline Media plugin
+desc   Embed online document using html5 object tag
+url    https://www.dokuwiki.org/plugin:inlinemedia

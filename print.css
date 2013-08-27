@@ -1,0 +1,8 @@
+/**
+ * Print Styles for InlineMedia plugin
+ */
+
+div.inlinemedia_container,
+div.inlinemedia_container_pdf {
+    display: none;
+}

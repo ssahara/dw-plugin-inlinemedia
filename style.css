@@ -1,0 +1,17 @@
+/**
+ * Style sheet for InlineMedia plugin
+ */
+
+div.inlinemedia_container,
+div.inlinemedia_container_pdf {
+	margin:0;
+	background-color: transparent;
+	/* border: 1px dotted grey; */
+	color: grey;
+	font-size: 70%;
+}
+
+div.plugin-obj_note {
+	color: grey;
+	font-size: 70%;
+}
