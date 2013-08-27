@@ -3,7 +3,7 @@
  * DokuWiki Plugin InlineMedia (Syntax Component)
  *
  * @license GPL 2 http://www.gnu.org/licenses/gpl-2.0.html
- * @author  Sahara Satoshi <sahara.satoshi@gmail.com>
+ * @author  Satoshi Sahara <sahara.satoshi@gmail.com>
  *
  * embed a online pdf document using html5 object tag.
  * SYNTAX:
@@ -73,7 +73,7 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
         list($ext, $mtype, $force_download) = mimetype($id);
         if ($force_download) {
             // DW配下ではないURLを使う
-            // alternative_mediapath が /始まりのときは、Document Rootからのパス
+            // alternative_mediapath が /始まりのときはDocument Rootからのパス
             // それ以外は DOKU_URL からのバスとなる。
             $mediapath = $this->GetConf('alternative_mediapath');
             if (empty($mediapath)) {
@@ -90,16 +90,11 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
             }
             // !!! EXPERIMENTAL : WEB SITE SPECIFIC FEATURE !!!
             // 埋め込みファイルのMIMEタイプが !で始まる場合、強制ダウンロードになるので、埋め込み不可能。
-            // 代替策として、DW管轄外のURLとして扱う。Webサーバ側のMIME設定次第。
-            // otherwise, assume "DOKU_URL/_media" directory 
-            // which physically mapped or linked to 
-            // your DW_DATA_PATH/media directory.
-            // WebServer solution includes htpd.conf, IIS virtual directory.
-            // Symbolic link or Junction are Filesystem solution.
-            // Example:
-            // if linux: ln -s DW_DATA_PATH/media _media
-            // if iis6(Win2003S): linkd.exe _media DW_DATA_PATH/media
-            // if iis7(Win2008S): mklink.exe /d _media DW_DATA_PATH/media
+            // 代替策として、DATA/mediaを指すsimbolic linkを用意する。
+            // Webサーバ側のMIME設定次第で強制ダウンロードになるかも。
+            // userewrite=1のとき、代替メディアパスを"DOKU_URL/_media"にすると、
+            // DWのMIME設定が有効となるので、強制ダウンロード対策にならなかった。
+            // したがって、"DOKU_URL/media"のようなDW管轄外のURLとすること。
             //
         } else {
             switch ($conf['userewrite']){
@@ -155,15 +150,13 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
         /*
          * handle params part
          */
-        $params = substr($params,5); //strip "{{obj"
-
         // split phrase by white space (" ", \r, \t, \n, \f)
         $tokens = preg_split('/\s+/', $params);
 
         // what type of markup used? (check first token)
         $markup = array_shift($tokens); // first param
-        if ($markup !== ":") {
-            $opts['type'] = substr($markup,1);
+        if ($markup !== "{{obj:") {
+            $opts['type'] = substr($markup,6); //strip "{{obj:"
         } else {
             $opts['type'] = substr($media, strrpos($media,'.')+1);
         }
