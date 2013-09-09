@@ -56,6 +56,7 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
             return $id;
         } else {
             // メディアIDの絶対パスを解決する
+            $id = cleanID($id);
             resolve_mediaid(getNS($ID),$id,$exists);
             //$id = idfilter($id);
             if (!$exists && ($ACT=='preview')) {
