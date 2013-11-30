@@ -4,4 +4,4 @@
  * used in the configuration manager
  */
 
-$lang['alternative_mediapath'] = "Alternative Media path used if MIME type start ! in mime.conf/mime.local.conf setting.";
+$lang['alternative_mediapath'] = "Alternative Media path used if MIME type start ! in mime setting.";

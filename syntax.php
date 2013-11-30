@@ -5,98 +5,86 @@
  * @license GPL 2 http://www.gnu.org/licenses/gpl-2.0.html
  * @author  Satoshi Sahara <sahara.satoshi@gmail.com>
  *
- * embed a online pdf document using html5 object tag.
+ * Embed online pdf documents using html5 object tag.
+ * Extra support to embed files on Google Drive and SkyDrive.
  * SYNTAX:
- *         {{obj:pdf ... > ..... }}
- *         {{obj:pdf width,height noreference > media_id|title}}
+ *         {{obj:type width,height noreference > media_id|title}}
  *
- *         {{obj:    ... > ..... }}  default obj type resolved by file extention
- *         {{obj:pdf ... > ..... }}  adobe pdf
- *         {{obj:swf ... > ..... }}  adobe flush?? (planned)
+ *         {{obj:    ... > ..... }}  obj type resolved by file extention or url pattern
+ *         {{obj:pdf ... > ..... }}  explicit adobe pdf
+ *         {{obj:swf ... > ..... }}  adobe flash?? (will not be implemented)
+ *         {{obj:url ... > url|title}}  display any url page using <iframe> (same as iframe plugin)
+ *         {{obj:nodisp ... > ..... }}  nothing embeded
+ *
+ *        Support plugin gview syntax
+ *         {{gview ... > ... }}
+ *         {{obj:gview ... > ..... }}
+ *
+ *        Some types may detected from media URL
+ *         {{obj:google.document       ... > ... }}
+ *         {{obj:google.spreadsheets   ... > ... }}
+ *         {{obj:google.presentation   ... > ... }}
+ *         {{obj:google.drawings ... > ... }}
+ *         {{obj:skydrive        ... > ... }}
+ *
  */
 
 // must be run within Dokuwiki
 if (!defined('DOKU_INC')) die();
 if (!defined('DOKU_PLUGIN')) define('DOKU_PLUGIN',DOKU_INC.'lib/plugins/');
 require_once DOKU_PLUGIN.'syntax.php';
-require_once DOKU_INC.'inc/confutils.php';
+//require_once DOKU_INC.'inc/confutils.php';
 
 class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
+
+    // URL of Google Docs Viwer Service
+    const URLgoogleViwer = 'https://docs.google.com/viewer';
+
+    // URL pattern for Google Docs,Sheets,Slides and Drawings 
+    const URLgoogleDrivePattern = '#https?://docs\.google\.com/(document|presentation|spreadsheet|drawings)/#';
+    // URL pattern for SkyDrive Web App Documents
+    const URLskyDrivePattern    = '#https?://skydrive\.live\.com/embed\?cid=#';
+
     public function getType()  { return 'substition'; }
     public function getPType() { return 'normal'; }
     public function getSort()  { return 305; }
     public function connectTo($mode) {
-        //$this->Lexer->addSpecialPattern('{{obj:.*?\>.*{{.+?}}[^\n]*}}',$mode,'plugin_inlinemedia');
         $this->Lexer->addSpecialPattern('{{obj:.*?\>.*?}}',$mode,'plugin_inlinemedia');
-    }
-
-    /**
-     * show debug message
-     * usage: $this->_debug('message', [-1,0,1,2],__LINE__,__FILE__);
-     */
-    protected function _debug($message, $err, $line, $file) {
-        if ($this->GetConf('debug')) {
-            msg($message, $err, $line, $file);
-        }
+        $this->Lexer->addSpecialPattern('{{gview.*?\>.*?}}',$mode,'plugin_inlinemedia');
     }
 
     /**
      * build Embed resource URL from media_id
-     * MIME設定により強制ダウンロードとなるファイルでも、埋め込みできるようにする。
-     * ここではURLエンコードはしない。render()側で処理する。
+     *
+     * @param $id (string)
+     * @return (string) mediapath (URL)
      */
     protected function _resource_url($id ='') {
         global $ACT, $ID, $conf;
 
-        $this->_debug('media $id='.$id, 0, __LINE__, __FILE__);
-
         // external URLs are always direct without rewriting
-        // URL（http://）であれば DWのMIME設定は気にする必要はない
-        if(preg_match('#^(https?|ftp)://#i', $id)) {
+        if(preg_match('#^https?://#i', $id)) {
             return $id;
-        } else {
-            // メディアIDの絶対パスを解決する
-            $id = cleanID($id);
-            resolve_mediaid(getNS($ID),$id,$exists);
-            //$id = idfilter($id);
-            if (!$exists && ($ACT=='preview')) {
-                msg('InlineMedia: file not exists: '.$id, -1);
-                // 存在しない場合、予期しないものが表示されてしまうのを防止…
-                return false;
-            }
+        }
+        $id = cleanID($id);
+        resolve_mediaid(getNS($ID), $id, $exists);
+        //$id = idfilter($id);
+        if (!$exists && ($ACT=='preview')) {
+            msg('InlineMedia: file not exists: '.$id, -1);
+            return false;
         }
         // check access control
         if (!media_ispublic($id) && ($ACT=='preview')) {
             msg('InlineMedia: '.$id.' is NOT public!', 2);
         }
-        
-        // check MIME setting of DW - mime.conf/mime.local.conf
+        // check MIME setting of DokuWiki - mime.conf/mime.local.conf
+        // Embedding will fail if the media file is to be force_download.
         list($ext, $mtype, $force_download) = mimetype($id);
         if ($force_download) {
-            // DW配下ではないURLを使う
-            // alternative_mediapath が /始まりのときはDocument Rootからのパス
-            // それ以外は DOKU_URL からのバスとなる。
-            $mediapath = $this->GetConf('alternative_mediapath');
-            if (empty($mediapath)) {
-                if ($ACT=='preview') {
-                    msg('InlineMedia: embedding .'.$ext.' file restricted because of MIME type (force download)', -1);
-                }
-                return false;
-            } else {
-                $mediapath.= str_replace(':','/',$id);
-                $mediapath = str_replace('//','/',$mediapath);
-                if ($ACT=='preview') {
-                    msg('InlineMedia: alternative mediapath used: '.$mediapath, 0);
-                }
+            $mediaUrl = _altMedia_url($id);  // try alternative url
+            if ($ACT=='preview') {
+                msg('InlineMedia: alternative url ('.$mediaUrl.') will be used for '.$id, 2);
             }
-            // !!! EXPERIMENTAL : WEB SITE SPECIFIC FEATURE !!!
-            // 埋め込みファイルのMIMEタイプが !で始まる場合、強制ダウンロードになるので、埋め込み不可能。
-            // 代替策として、DATA/mediaを指すsimbolic linkを用意する。
-            // Webサーバ側のMIME設定次第で強制ダウンロードになるかも。
-            // userewrite=1のとき、代替メディアパスを"DOKU_URL/_media"にすると、
-            // DWのMIME設定が有効となるので、強制ダウンロード対策にならなかった。
-            // したがって、"DOKU_URL/media"のようなDW管轄外のURLとすること。
-            //
         } else {
             switch ($conf['userewrite']){
               case 0: // No URL rewriting
@@ -110,12 +98,27 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
                 break;
             }
         }
-        $this->_debug('$mediapath='.$mediapath.' $force_DL='.(int)$force_download, 0);
-        
-        
         return $mediapath;
     }
 
+    /**
+     * alternateive url of the media file
+     * to avoid forced download based on DokuWiki MIME setting, or
+     * to provide another (non-ugly) url for the file.
+     *
+     * @param $id (string) media id
+     * @return (string) URL or pathname of the media file
+     */
+    protected function _altMedia_url($id) {
+
+        $altMediaBaseUrl = $this->getConf('alternative_mediapath');
+        // Example: /data/upload/
+        // Be sure to have a leading and a trailing slash!
+        // also acceptable base url like http://www.example.com/upload/
+        if (empty($altMediaBaseUrl)) $altMediaBaseUrl ='/';
+        if ($id[0] == ':') $id = substr($id,1);
+        return $altMediaBaseUrl.str_replace(':','/',$id);
+    }
 
 
 
@@ -129,65 +132,69 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
                      'type'   => 'unknown',
                      'id'     => '',
                      'title'  => '',
-                     'width'  => '100%',
+                     'width'  => '98%',
                      'height' => '300px',
                      'reference'  => true,
                      );
 
-        list($params, $media) = explode('>',$match,2);
+        list($params, $media) = explode('>', $match, 2);
+
+        /*
+         * handle params part
+         */
+        $params = substr($params,2); // strip "{{" prefix
+
+        // what type of markup used?
+        list($markup, $params) = explode(' ',$params,2);
+        if (strpos($markup,':') === false) {
+            $opts['type'] = $markup;  // gview syntax used
+        } else {
+            list($markup, $opts['type']) = explode(':',$markup,2);
+            // note: $opts['type'] must be checked later
+        }
+        // other arguments
+        $helper = $this->loadHelper('inlinemedia');
+        $attrs = $helper->getAttributes($params);
+        foreach ($attrs as $key => $value) {
+            $opts[$key] = $value;
+        }
 
         /*
          * handle media part
          */
         $media = trim($media, ' {}');
-        if(strpos($media,'|') !== false) {
-            list($media, $title) = explode('|',$media,2);
-        }
-        $media = $this->_resource_url($media);
-
-        $opts['id'] = trim($media);
-        if (!empty($title)) $opts['title'] = trim($title);
-
-        /*
-         * handle params part
-         */
-        // split phrase by white space (" ", \r, \t, \n, \f)
-        $tokens = preg_split('/\s+/', $params);
-
-        // what type of markup used? (check first token)
-        $markup = array_shift($tokens); // first param
-        if ($markup !== "{{obj:") {
-            $opts['type'] = substr($markup,6); //strip "{{obj:"
+        list($media, $title) = explode('|',$media,2);
+        if (!empty($title)) {
+            $opts['title'] = trim($title);
         } else {
-            $opts['type'] = substr($media, strrpos($media,'.')+1);
+            $opts['title'] = $media;
         }
 
-        // see other tokens
-        foreach ($tokens as $token) {
-            // get width and height
-            $matches=array();
-            if (preg_match('/(\d+(%|em|pt|px)?)\s*([,xX]\s*(\d+(%|em|pt|px)?))?/',$token,$matches)){
-                if ($matches[4]) {
-                    // width and height was given
-                    $opts['width'] = $matches[1];
-                    if (!$matches[2]) $opts['width'].= 'px';
-                    $opts['height'] = $matches[4];
-                    if (!$matches[5]) $opts['height'].= 'px';
-                    continue;
-                } elseif ($matches[2]) {
-                    // only height was given
-                    $opts['height'] = $matches[1];
-                    if (!$matches[2]) $opts['height'].= 'px';
-                    continue;
-                }
-            }
-            // get reference option, ie. whether show original document url?
-            if (preg_match('/no(reference|link)/',$token)){
-                $opts['reference'] = false;
-                continue;
-            }
+        // Google Docs,Sheets,Slides and Drawings
+        if (preg_match(self::URLgoogleDrivePattern, $media, $matches)) {
+            $opts['type'] = 'google.'.$matches[1];
+            if ($matches[1] == 'drawings') $opts['reference'] = false;
+        }
+        // SkyDrive Microsoft Web App
+        if (preg_match(self::URLskyDrivePattern, $media, $matches)) {
+            $opts['type'] = 'skydrive';
         }
 
+        // check if type was omitted in markup like "{{obj: ...>...}}"
+        if (empty($opts['type'])) {
+            $ext = substr($media, strrpos($media,'.')+1);
+            $opts['type'] = $ext;
+        }
+
+        // additional check for gview syntax
+        // because Google's viewer service requires non-ugly url of media!
+        if ( ($opts['type'] == 'gview') && ($conf['userewrite'] == 0)
+           && !preg_match('#^https?://#', $media)) {
+            // try alternative url
+            $opts['id'] = substr( DOKU_URL,0,-1).$this->_altMedia_url($media);
+        } else {
+            $opts['id'] = $this->_resource_url($media);
+        }
         return array($state, $opts);
     }
 
@@ -206,23 +213,44 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
                 return false;
                 break;
             case 'pdf':
-            default:
                 $html = $this->_html_embed_pdf($opts);
+                break;
+            case 'url':
+                $html = $this->_html_iframe($opts);
+                break;
+            case 'google.document':
+                $html = $this->_html_google_document($opts);
+                break;
+            case 'google.spreadsheet':
+                $html = $this->_html_google_spreadsheet($opts);
+                break;
+            case 'google.presentation':
+                $html = $this->_html_google_presentation($opts);
+                break;
+            case 'google.drawings':
+                $html = $this->_html_google_drawings($opts);
+                break;
+            case 'skydrive':
+                $html = $this->_html_ms_webapp($opts);
+                break;
+            case 'gview':
+            default:
+                $html = $this->_html_embed_gview($opts);
                 break;
         }
         $renderer->doc.=$html;
         return true;
     }
 
-     /**
-      * Generate html for sytax {{obj:pdf}}
-      */
-    function _html_embed_pdf($opts) {
+    /**
+     * Generate html for sytax {{obj:pdf}}
+     */
+    protected function _html_embed_pdf($opts) {
 
         // make reference link
         $referencelink = '<a href="'.utf8_encodeFN($opts['id']).'">'.$opts['id'].'</a>';
 
-        $html = '<div class="inlinemedia_container_pdf">'.NL;
+        $html = '<div class="obj_container_pdf">'.NL;
         if ($opts['reference']) {
             $html.= sprintf($this->getLang('reference_msg'), $referencelink);
             $html.= '<br />'.NL;
@@ -235,15 +263,153 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
         if ($opts['width'])  { $html.= ' width: '.$opts['width'].';'; }
         if ($opts['height']) { $html.= ' height: '.$opts['height'].';'; }
         $html.= '">'.NL;
+        $html.= hsc($opts['title']);
         $html.= '</object>'.NL;
         $html.= '</div>'.NL;
 
         return $html;
     }
 
-     /**
-      * Generate html for sytax {{obj:xxx}} (planned)
-      *
-      */
+    /**
+     * Generate html inside iframe {{obj:url}}
+     */
+    protected function _html_iframe($opts) {
+        $html.= '<iframe src="'.$opts['id'].'"';
+        if ($opts['width'])  { $html.= ' width="'.$opts['width'].'"'; }
+        if ($opts['height']) { $html.= ' height="'.$opts['height'].'"'; }
+        if ($opts['border']) {
+            $html.= ' style="border:1px solid grey;"';
+        } else {
+            $html.= ' frameborder="0"';
+        }
+        $html.= '">'.hsc($opts['title']).'</iframe>'.NL;
+        return $html;
+    }
 
+
+    /**
+     * Generate html for sytax {{obj:gview>}} or {{gview>}}
+     *
+     * @see also: https://docs.google.com/viewer#
+     */
+    private function _html_embed_gview($opts) {
+
+        // make reference link
+        $referencelink = '<a href="'.$opts['id'].'">'.hsc($opts['id']).'</a>';
+
+        $html = '<div class="obj_container_gview">'.NL;
+        if ($opts['reference']) {
+                $html.= '<div class="obj_note">';
+                $html.= sprintf($this->getLang('reference_msg'), $referencelink);
+                $html.= '</div>'.NL;
+        }
+        $html.= '<iframe src="'.self::URLgoogleViwer;
+        $html.= '?url='.urlencode($opts['id']);
+        $html.= '&embedded=true"';
+        $html.= ' style="';
+        if ($opts['width'])  { $html.= ' width: '.$opts['width'].';'; }
+        if ($opts['height']) { $html.= ' height: '.$opts['height'].';'; }
+        //if ($opts['border'] == false) { $html.= ' border: none;'; }
+        $html.= ' border: none;';
+        $html.= '"></iframe>'.NL;
+        $html.= '</div>'.NL;
+
+        return $html;
+    }
+
+    /**
+     * Generate html for Google Drawings
+     */
+    private function _html_google_drawings($opts) {
+
+        $html.= '<img src="'.$opts['id'].'"';
+        if ($opts['width'])  { $html.= ' width="'.$opts['width'].'"'; }
+        if ($opts['height']) { $html.= ' height="'.$opts['height'].'"'; }
+        if ($opts['title'])  { $html.= ' title="'.hsc($opts['title']).'"'; }
+        $html.= '" />';
+        if ($opts['editable']) {
+            $url = substr($opts['id'],0,strrpos($opts['id'],'/')).'/edit';
+            $html = '<a href="'.$url.'">'.$html.'</a>';
+        }
+        $html.= NL;
+        return $html;
+    }
+    /**
+     * Generate html for Google Document
+     */
+    private function _html_google_document($opts) {
+
+        if ($opts['reference']) {
+            $url = substr($opts['id'],0,strrpos($opts['id'],'/')).'/edit?usp=sharing';
+            if ($opts['title']) {
+                $referencelink = '<a href="'.$url.'">'.hsc($opts['title']).'</a>';
+            } else {
+                $referencelink = '<a href="'.$url.'">'.hsc($url).'</a>';
+            }
+            $html.= '<div class="obj_note">';
+            $html.= sprintf($this->getLang('reference_msg'), $referencelink);
+            $html.= '</div>'.NL;
+        }
+        $html.= '<iframe src="'.$opts['id'].'"';
+        $html.= ' style="';
+        if ($opts['width'])  { $html.= ' width: '.$opts['width'].';'; }
+        if ($opts['height']) { $html.= ' height: '.$opts['height'].';'; }
+        if ($opts['border'] !== false) {
+            $html.= ' border: 1px solid grey;';
+        } else {
+            $html.= ' border: none;';
+        }
+        $html.= '"></iframe>'.NL;
+        return $html;
+    }
+    /**
+     * Generate html for Google Presentation
+     */
+    private function _html_google_presentation($opts) {
+
+        if ($opts['reference']) {
+            $url = substr($opts['id'],0,strrpos($opts['id'],'/')).'/edit?usp=sharing';
+            if ($opts['title']) {
+                $referencelink = '<a href="'.$url.'">'.hsc($opts['title']).'</a>';
+            } else {
+                $referencelink = '<a href="'.$url.'">'.hsc($url).'</a>';
+            }
+            $html.= '<div class="obj_note">';
+            $html.= sprintf($this->getLang('reference_msg'), $referencelink);
+            $html.= '</div>'.NL;
+        }
+        $html.= '<iframe src="'.$opts['id'].'"';
+        $html.= ' frameborder="0" allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true"';
+        $html.= ' style="';
+        if ($opts['width'])  { $html.= ' width: '.$opts['width'].';'; }
+        if ($opts['height']) { $html.= ' height: '.$opts['height'].';'; }
+        $html.= '"></iframe>'.NL;
+        return $html;
+    }
+    /**
+     * Generate html for Google Spreadsheet
+    */
+    private function _html_google_spreadsheet($opts) {
+
+        $html = '<iframe src="'.$opts['id'].'"';
+        $html.= ' frameborder="0"';
+        $html.= ' style="';
+        if ($opts['width'])  { $html.= ' width: '.$opts['width'].';'; }
+        if ($opts['height']) { $html.= ' height: '.$opts['height'].';'; }
+        $html.= '"></iframe>'.NL;
+        return $html;
+    }
+
+    /**
+     * Generate html for Microsoft Web App on SkyDrive
+    */
+    private function _html_ms_webapp($opts) {
+
+        $html = '<iframe src="'.$opts['id'].'"';
+        $html.= ' frameborder="0"';
+        if ($opts['width'])  { $html.= ' width="'.$opts['width'].'"'; }
+        if ($opts['height']) { $html.= ' height="'.$opts['height'].'"'; }
+        $html.= '></iframe>'.NL;
+        return $html;
+    }
 }

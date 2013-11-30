@@ -4,4 +4,4 @@
  * used in the configuration manager
  */
 
-$lang['alternative_mediapath'] = "代替メディアパス. MIME タイプの設定により強制ダウンロードとなる場合にのみ使用されます。（末尾/）";
+$lang['alternative_mediapath'] = "代替メディアパス. 強制ダウンロードとなる場合を回避するために使用。DokuWikiの管理外にあるフォルダパス（/始まり・末尾/）";

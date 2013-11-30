@@ -4,5 +4,5 @@
  *
  */
 
-$conf['alternative_mediapath'] = '';
+$conf['alternative_mediapath'] = '/_media/';
 $conf['debug'] = 0;
