@@ -81,9 +81,9 @@ class syntax_plugin_inlinemedia extends DokuWiki_Syntax_Plugin {
         // Embedding will fail if the media file is to be force_download.
         list($ext, $mtype, $force_download) = mimetype($id);
         if ($force_download) {
-            $mediaUrl = $this->_altMedia_url($id);  // try alternative url
+            $mediapath = $this->_altMedia_url($id);  // try alternative url
             if ($ACT=='preview') {
-                msg('InlineMedia: alternative url ('.$mediaUrl.') will be used for '.$id, 2);
+                msg('InlineMedia: alternative url ('.$mediapath.') will be used for '.$id, 2);
             }
         } else {
             switch ($conf['userewrite']){
